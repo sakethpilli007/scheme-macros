@@ -4,24 +4,27 @@
 
 {% block content %}
 
+In Scheme, we generally define lambda's in the following manner:
 <div class="live" id="ex1">
 (lambda (x) x)
 </div>
-
+This is the most basic one you can define, with the first x as the binding variable and the second x as the bound one, aka the identity. <br/>
+Now, we define a procedure f, which normally we do as <code>(define (f x) x)</code>, but that's actually sugar for
 <div class="live" id="ex2">
 (define f (lambda (x) x))
 f
 </div>
 
+Here's an identity function lambda that acts as a procedure, the entire block <code>(lambda (x) x)</code> is the procedure taking the input <code>(+ 3 4)</code>
 <div class="live" id="ex3">
 ((lambda (x) x) (+ 3 4))
 </div>
-
+Any <code>let</code> can be defined by <code>lambda</code> in Scheme. In fact, one can define <code>let</code> using a macro, introduced later. <code>let</code> is used to create local variable bindings, such as <code>(+ 3 4)</code> being bound to <code>x</code>
 <div class="live" id="ex4">
 (let ((x (+ 3 4)))
   x)
 </div>
-
+Here we see an example of two (as far as Scheme is concerned) identical expressions.
 <div class="live" id="ex5">
 ((lambda (y) (* y y)) (+ 3 4))
 </div>
@@ -30,16 +33,19 @@ f
 (let ((y (+ 3 4)))
   (* y y))
 </div>
+There's also a <code>'</code> quote operator, which essentially stops the evaluation of an expression and treats it as just data. This means the code becomes data. Then there's <code>eval</code>, which forces Scheme to evaluate an expression. In a way, eval is a little compiler in the program that you hand a list of symbols and numbers, and it treats it as a line of code.
 
 <div class="live" id="ex7">
 (eval '(+ 3 4))
 </div>
 
+<code>eval</code> runs a piece of code. <code>expand</code> stops one step earlier: it takes a piece of code and shows what it looks like after all macros are filled in, without running anything. Notice <code>(+ 3 4)</code> stays <code>(+ 3 4)</code> in the output below, not <code>7</code>. Expansion is about syntax, not values. <br/><br/>
+Two things change in the output. First, <code>+</code> and <code>*</code> become <code>#2%+</code> (or <code>$primitive 2 +</code> depending on if you're in the repl or not) and <code>#2%*</code>. The expander has resolved those names to Chez's built-in primitives, so later stages know nobody redefined them. Second, <code>y</code> is replaced with a <i>generated symbol</i> (a "gensym") like <code>#{y hd68jsbgg52bmdgo8xk3b4q0d-0}</code>. The expander renames every bound variable to a fresh, globally unique name. Note that in Chez the expansion still prints as <code>let</code>; other Schemes rewrite it to <code>lambda</code>, which is the same thing, as shown before!
 <div class="live" id="ex8">
 (expand '(let ((y (+ 3 4)))
   (* y y)))
 </div>
-
+The gensyms are hard and annoying to read. <code>(print-gensym #f)</code> suppresses the uniquely identifying suffix and prints just the original name. Tihe symbols are still unique internally; only the printing changes and allows for ease-of-reading.
 <div class="live" id="lib-print-gensym-f">
 (print-gensym #f)
 </div>
@@ -48,7 +54,7 @@ f
 (expand '(let ((y (+ 3 4)))
   (* y y)))
 </div>
-
+That hides a bit too much though: if two different variables both happened to be named <code>y</code>, we'd have no way to tell them apart anymore. So as a middle ground there's <code>(print-gensym 'pretty/suffix)</code>, which prints the original name plus a tiny numeric suffix, like <code>y.1</code>.
 <div class="live" id="lib-print-gensym-pretty" data-lib="lib-print-gensym-f">
 (print-gensym 'pretty/suffix)
 </div>
@@ -57,65 +63,66 @@ f
 (expand '(let ((y (+ 3 4)))
              (* y y)))
 </div>
-
+If we expand the <code>lambda</code> version from earlier, we get the exact same thing. Essentially, whenever the expander sees a <code>lambda</code> sitting directly in the operator position, it just turns it into a <code>let</code>. So as far as Scheme is concerned the two spellings are one and the same program.
 <div class="live" id="ex11" data-lib="lib-print-gensym-pretty">
 (expand '((lambda (y) (* y y)) (+ 3 4)))
 </div>
-
+We know what the quote operator does, but clearly it would be a bit of a pain to write the following <code>let</code>, quoting every single symbol one by one.
 <div class="live" id="ex12">
 (let ((adj 'little))
     (list 'Mary 'had 'a adj 'lamb))
 </div>
-
+The easier way to do this is to use the <i>quasiquote</i> <code>`</code>, which essentially quotes everything inside in the same manner as above, except for anything marked with the <i>unquote</i> operator <code>,</code>, which gets evaluated and dropped in.
 <div class="live" id="ex13">
 (let ((adj 'little))
     `(Mary had a ,adj lamb))
 </div>
-
+Unquote works anywhere inside the quasiquote, including the operator position. Here we're building the list <code>(+ 3 4)</code>. Note that nothing actually gets added, it's still just a list of three things, not a computation.
 <div class="live" id="ex14">
 (let ((op '+))
     `(,op 3 4))
 </div>
-
+But since it's just data, we can hand it to <code>eval</code> and it becomes code, so now we get 7. The rest of the tutorial will have more examples where we build up some code as a list with quasiquote and then run it.
 <div class="live" id="ex15">
 (eval (let ((op '+))
     `(,op 3 4)))
 </div>
-
+If we swap what's in the hole, the same template gives us different code. This is essentially the whole idea behind a macro, a template with holes in it which gets filled in and then treated as code rather than passing arguments like a normal function.
 <div class="live" id="ex16">
 (eval (let ((op '*))
     `(,op 3 4)))
 </div>
-
+Here's the same trick, but now the hole is a variable name. We're generating a <code>let</code> that binds whatever name <code>var</code> happens to hold, so running this gives back <code>(let ((x 3)) (* x x))</code>.
 <div class="live" id="ex17">
 (let ((var 'x))
     `(let ((,var 3)) (* ,var ,var)))
 </div>
-
+Now suppose the body also comes from outside, say from whoever is using our template. Their body <code>(x 4)</code> refers to their own <code>x</code>, presumably some procedure. But our template also happened to pick <code>x</code> as its binding name, so what comes out is <code>(let ((x 3)) (x 4))</code>, aka our binding shadows theirs, and since this was unintentional it's called being "captured". If you try wrapping this in <code>eval</code> you get <code>attempt to apply non-procedure 3</code>. This is called variable capture, and it's essentially the problem that hygiene exists to solve. <br/>
+A macro system is <i>hygienic</i> if it guarantees this specific thing won't happen, this collision essentially of names introduced by the macro and names written by the user of the macro. The word "hygiene" means clean, after all. Macros will be introduced later, but keep this in mind.
 <div class="live" id="ex18">
 (let ((var 'x)
         (body '(x 4)))
     `(let ((,var 3)) ,body))
 </div>
-
+The obvious fix is to just not pick a name the user could have picked. <code>gensym</code> gives us a fresh symbol that's guaranteed to be different from every other symbol in the program (with <code>pretty/suffix</code> on, it prints as <code>x.0</code>). Now the binding is <code>x.0</code> and the body's <code>x</code> is left alone, still pointing at whatever <code>x</code> meant outside.
 <div class="live" id="ex19" data-lib="lib-print-gensym-pretty">
 (let ((var (gensym "x"))
         (body '(x 4)))
     `(let ((,var 3)) ,body))
 </div>
-
+Every call to <code>gensym</code> hands back a brand new symbol, never one it's handed out before. Here's the same code three times, collected in a list, and the suffix just keeps counting up.
 <div class="live" id="ex20" data-lib="lib-print-gensym-pretty">
-(let ((var (gensym "x"))
-        (body '(x 4)))
-    `(let ((,var 3)) ,body))
+(list (let ((var (gensym "x"))
+            (body '(x 4)))
+        `(let ((,var 3)) ,body))
+      (let ((var (gensym "x"))
+            (body '(x 4)))
+        `(let ((,var 3)) ,body))
+      (let ((var (gensym "x"))
+            (body '(x 4)))
+        `(let ((,var 3)) ,body)))
 </div>
-
-<div class="live" id="ex21" data-lib="lib-print-gensym-pretty">
-(let ((var (gensym "x"))
-        (body '(x 4)))
-    `(let ((,var 3)) ,body))
-</div>
-
+Quick detour on <code>define</code> before we write a real macro. These two are the same thing, the second is just shorthand for the first. Both are procedures, and we call them the usual way. Throwback to the top of the tutorial on the syntactic sugar.
 <div class="live" id="ex-my-proc-1">
 (define my-proc (lambda (x) (* x x)))
 (my-proc 3)
@@ -125,57 +132,57 @@ f
 (define (my-proc x) (* x x))
 (my-proc 3)
 </div>
-
+Now for the real thing... <code>define-syntax</code> with <code>syntax-rules</code> defines a macro, which is essentially a pattern on the left and a template on the right. Whenever the expander sees something matching <code>(my-let ((id e)) body)</code>, it replaces it with <code>((lambda (id) body) e)</code>, with <code>id</code>, <code>e</code>, and <code>body</code> filled in from the match. This is exactly the <code>let</code>/<code>lambda</code> equivalence from earlier, just written down as a rewrite rule. Note that unlike the quasiquote version, we never call <code>eval</code>: the expander does the rewriting for us before the program even runs. In fact, that's fundamentally the difference between a macro and a procedure. A procedure receives values at run time, while a macro receives code at expansion time and hands back different code, which is then compiled like anything else. (This block gets loaded into the blocks below.)
 <div class="live norun" id="syntax-my-let">
 (define-syntax my-let
     (syntax-rules ()
       [(my-let ((id e)) body)
        ((lambda (id) body) e)]))
 </div>
-
+And it works just like <code>let</code>.
 <div class="live" id="ex-my-let" data-lib="lib-print-gensym-pretty syntax-my-let">
 (my-let ((y (+ 3 4)))
     (* y y))
 </div>
-
+If we <code>expand</code> it, we see that <code>my-let</code> is gone entirely. It became a <code>lambda</code> application, which Chez then prints as a <code>let</code>, identical to what we saw before. The compiler never even knows <code>my-let</code> existed. Notice <code>y</code> got renamed to something like <code>y.1</code>, same as before.
 <div class="live" id="ex-my-let-expand" data-lib="lib-print-gensym-pretty syntax-my-let">
 (expand '(my-let ((y (+ 3 4)))
     (* y y)))
 </div>
-
+So where does that renaming actually come from? Detective time! Here the template uses <code>my-lambda</code>, which isn't defined anywhere.
 <div class="live norun" id="syntax-my-let-my">
 (define-syntax my-let
     (syntax-rules ()
       [(my-let ((id e)) body)
        ((my-lambda (id) body) e)]))
 </div>
-
+<code>expand</code> still goes through, since expanding doesn't run anything. But if you look at the output, <code>y</code> is <i>not</i> renamed this time. The expander only renames variables it knows are bound, and it has no idea <code>my-lambda</code> binds anything, so it treats <code>(my-lambda (y) (* y y))</code> as an ordinary procedure call with two arguments and <code>y</code> is just a free variable. In other words hygiene comes from the expander understanding which forms bind names, it doesn't just naively go for everything.
 <div class="live" id="ex-my-let-my-expand" data-lib="lib-print-gensym-pretty syntax-my-let-my">
 (expand '(my-let ((y (+ 3 4)))
     (* y y)))
 </div>
-
+<code>let*</code> is essentially <code>let</code> with the bindings done in order, where each one can see the ones before it. Here <code>x</code> is 9, <code>y</code> is 81, then a second <code>y</code> is 9 + 81 = 90, and the result is 9 * 90 = 810.
 <div class="live" id="ex-let-star">
 (let* ((x (+ 4 5))
          (y (* x x))
          (y (+ x y)))
     (* x y))
 </div>
-
+Which is to say, it's really just nested <code>let</code>s. Same answer.
 <div class="live" id="ex-let-nested">
 (let ((x (+ 4 5)))
     (let ((y (* x x)))
       (let ((y (+ x y)))
         (* x y))))
 </div>
-
+<code>expand</code> confirms it. And notice! <code>let*</code> isn't primitive, it's a macro over <code>let</code>. Notice the two <code>y</code>s get different suffixes, since the second one shadows the first, and the renaming makes that visible.
 <div class="live" id="ex2-let-star-expand" data-lib="lib-print-gensym-pretty syntax-my-let-my">
 (expand '(let* ((x (+ 4 5))
                   (y (* x x))
                   (y (+ x y)))
              (* x y)))
 </div>
-
+We can even write it ourselves. There are two rules this time though If there are no bindings left, the result is just the body, otherwise we peel off the first binding into a <code>let</code> and recurse on the rest. The <code>...</code> in the pattern matches zero or more of whatever comes right before it, and in the template it repeats them. So the macro is recursive, and the expander just keeps expanding until there's no <code>my-let*</code> left.
 <div class="live norun" id="syntax-my-let-star">
 (define-syntax my-let*
     (syntax-rules ()
@@ -184,21 +191,21 @@ f
        (let ((id e))
          (my-let* ((id* e*) ...) body))]))
 </div>
-
+Here's the built-in one again, for comparison.
 <div class="live" id="ex2-let-star">
 (let* ((x (+ 4 5))
          (y (* x x))
          (y (+ x y)))
     (* x y))
 </div>
-
+And here's ours.
 <div class="live" id="ex-my-let-star" data-lib="lib-print-gensym-pretty syntax-my-let-my syntax-my-let-star">
 (my-let* ((x (+ 4 5))
          (y (* x x))
          (y (+ x y)))
     (* x y))
 </div>
-
+And the expansion is the same as the built-in's, right down to the shape. 
 <div class="live" id="ex-my-let-star-expand" data-lib="lib-print-gensym-pretty syntax-my-let-my syntax-my-let-star">
 (expand '(my-let* ((x (+ 4 5))
                   (y (* x x))
